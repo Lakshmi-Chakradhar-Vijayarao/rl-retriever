@@ -33,8 +33,10 @@ class QueryRewriteEnv:
             before,
             after,
             self.original_query,
-            rewritten_query
+            rewritten_query,
+            use_embedding=False   # CRITICAL
         )
+
 
         done = self.step_t >= self.max_steps
 

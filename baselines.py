@@ -11,4 +11,4 @@ def random_rewrite(query):
 
 
 def static_rewrite(query):
-    return query + " clinical guideline treatment"
+    return query + " clinical guideline recommended treatment"

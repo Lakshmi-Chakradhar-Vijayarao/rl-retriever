@@ -1,45 +1,42 @@
 from retriever import Retriever
 from env import QueryRewriteEnv
 from agent import PPOAgent
-from train import load_corpus
+from config import STATE_DIM, ACTION_DIM, TRAIN_DOMAIN, MODEL_PATH
 import torch
 import os
 
 
+def load_domain_corpus(domain):
+    path = f"data/{domain}/corpus.txt"
+    with open(path) as f:
+        return [l.strip() for l in f if l.strip()]
+
+
 def main():
-    # Load corpus and initialize components
-    corpus = load_corpus("data/corpus.txt")
+    corpus = load_domain_corpus(TRAIN_DOMAIN)
+
     retriever = Retriever(corpus)
     env = QueryRewriteEnv(retriever)
 
-    agent = PPOAgent(state_dim=4, action_dim=4)
+    agent = PPOAgent(state_dim=STATE_DIM, action_dim=ACTION_DIM)
 
-    # ----------------------------
-    # Load trained PPO policy
-    # ----------------------------
-    model_path = "models/policy.pt"
-    if os.path.exists(model_path):
-        agent.load_state_dict(torch.load(model_path))
+    if os.path.exists(MODEL_PATH):
+        agent.load_state_dict(torch.load(MODEL_PATH))
         agent.eval()
         print("✅ Loaded trained PPO policy")
     else:
-        print("⚠️ No trained policy found — running with untrained policy")
+        print("⚠️ No trained policy found")
 
-    # Initial query
     query = "treatment for diabetes"
     state = env.reset(query)
 
     print("\nInitial Query:", query)
 
-    # Show baseline retrieval
     initial_results = retriever.retrieve(query)
     if initial_results:
         print("Initial Top Result:", initial_results[0][1])
 
-    # Select action using PPO policy
-    action_fn, action_idx, _ = agent.select_action(state["vector"])
-
-    # Take one environment step
+    action_fn, _, _ = agent.select_action(state["vector"])
     next_state, reward, done, info = env.step(state, action_fn)
 
     print("\nChosen Action:", action_fn.__name__)
