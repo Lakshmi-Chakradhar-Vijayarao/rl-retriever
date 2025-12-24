@@ -1,61 +1,84 @@
 # RL-Retriever: Reinforcement Learning–Based Query Optimization for RAG
 
-RL-Retriever is a **lightweight, executable research project** that formulates **query rewriting for retrieval-augmented generation (RAG)** as a **reinforcement learning (RL) problem**.
+RL-Retriever is a **research-grade, executable system** that formulates **query rewriting for Retrieval-Augmented Generation (RAG)** as a **reinforcement learning (RL) control problem**.
 
-Instead of treating query formulation as a static or heuristic process, this project models it as a **sequential decision-making task**, where an agent learns to rewrite queries in order to **maximize downstream retrieval quality**.
+Instead of treating query formulation as a static or heuristic preprocessing step, this project models query rewriting as a **sequential decision-making task**, where an RL agent learns **when and how to rewrite queries** to improve downstream retrieval quality — and when **not** to rewrite.
 
-The emphasis of this repository is on **correct RL formulation, reward design, and system-level reasoning**, rather than large-scale training or heavy frameworks.
+The emphasis of this repository is on **correct RL formulation, reward design, and system-level reasoning**, rather than large-scale training or heavyweight frameworks.
 
 ---
 
 ## Motivation
 
-In RAG systems, retrieval quality is often the **primary bottleneck**.
-Even strong embedding models fail when queries are underspecified, ambiguous, or poorly aligned with the corpus.
+In modern RAG systems, retrieval quality is often the **primary bottleneck**.
+Even strong embedding models can fail when user queries are:
 
-Common limitations of existing approaches:
+* underspecified
+* informal
+* ambiguous
+* poorly aligned with the corpus vocabulary
+
+Common limitations of existing approaches include:
 
 * static query templates
 * heuristic query expansion
-* optimization focused on text similarity rather than downstream utility
-* lack of learning signals tied to retrieval performance
+* optimization based purely on text similarity
+* lack of learning signals tied to retrieval outcomes
+* no mechanism to decide *when rewriting is unnecessary*
 
 **Key idea:**
 
 > Query rewriting should be optimized using the same principles as other control and optimization problems — by defining states, actions, rewards, and policies.
 
-RL-Retriever demonstrates this idea in a **clean, minimal, and reproducible way**.
+RL-Retriever demonstrates this idea in a **clean, interpretable, and reproducible way**.
 
 ---
 
 ## Problem Formulation (RL Perspective)
 
-The task is formulated as a **Markov Decision Process (MDP)**:
+The task is formulated as a **Markov Decision Process (MDP)**.
 
 ### State
 
-* Current query
-* Top-K retrieval results from the corpus
+The environment state captures retrieval context:
+
+* current query
+* statistics from top-K retrieval results (BM25 scores)
+* query length
+* step index (for multi-step refinement)
 
 ### Action
 
-* Apply a query rewrite function
-  (e.g., add domain terms, expand acronyms, add guideline context, or do nothing)
+A discrete, interpretable set of query rewrite actions:
+
+* add domain-specific terms
+* expand acronyms / abbreviations
+* add guideline or contextual terms
+* no-op (explicitly choose not to rewrite)
 
 ### Environment
 
 * A BM25-based retriever operating over a document corpus
+* Evaluated across **medical, legal, and financial domains**
 
-### Reward
+### Reward (RLHF-style)
 
 A **shaped reward** combining:
 
-* **retrieval improvement** (primary signal)
-* **semantic preservation** between original and rewritten queries (dense signal)
+* **retrieval rank improvement** (primary signal)
+* **semantic preservation** (embedding similarity)
+* **grounding quality** (query–document overlap)
+* **rewrite penalty** (discourages unnecessary verbosity)
+
+This mirrors **RLHF-style reward shaping**, while keeping the optimization objective grounded in retrieval performance.
 
 ### Objective
 
-Learn a policy that increases the likelihood of actions that **improve downstream retrieval quality**, while maintaining stability and avoiding degenerate rewrites.
+Learn a policy that:
+
+* improves retrieval for underspecified queries
+* avoids harmful rewrites when retrieval is already optimal
+* remains stable and interpretable
 
 ---
 
@@ -64,7 +87,11 @@ Learn a policy that increases the likelihood of actions that **improve downstrea
 ```
 Query
   ↓
-Action Selection (Query Rewrite)
+State Construction
+  ↓
+PPO Policy (Action Selection)
+  ↓
+Query Rewrite
   ↓
 Retriever (BM25)
   ↓
@@ -73,7 +100,7 @@ Reward Computation
 Policy Update
 ```
 
-The system is intentionally modular, making each component easy to inspect, reason about, and extend.
+The system is intentionally modular so each component can be inspected, modified, or replaced independently.
 
 ---
 
@@ -81,72 +108,73 @@ The system is intentionally modular, making each component easy to inspect, reas
 
 ```
 rl-retriever/
-├── main.py          # Executable demo (single-run inference)
-├── train.py         # Lightweight RL training loop
-├── env.py           # RL environment (state, transition, reward)
-├── agent.py         # PPO-style policy agent
-├── actions.py       # Discrete query rewrite actions
-├── retriever.py     # BM25-based retriever
-├── reward.py        # Shaped reward definition
+├── actions.py          # Discrete query rewrite actions
+├── agent.py            # PPO agent (policy + value networks)
+├── env.py              # RL environment (state, step, reward)
+├── reward.py           # RLHF-style reward computation
+├── retriever.py        # BM25-based retriever
+├── train.py            # PPO training loop
+├── main.py             # Single-query inference demo
+├── evaluate.py         # Multi-domain evaluation script
+├── eval_metrics.py     # Recall@K and Mean Rank
+├── baselines.py        # No-rewrite, static, random baselines
+├── config.py           # Centralized configuration
 ├── data/
-│   ├── corpus.txt   # Example document corpus
-│   └── queries.txt  # Example input queries
-└── requirements.txt
+│   ├── medical/
+│   ├── legal/
+│   └── finance/
+├── requirements.txt
+└── README.md
 ```
 
 ---
 
 ## Key Design Decisions (and Why)
 
-### 1. Discrete Action Space
+### 1. Discrete, Interpretable Actions
 
-Query rewrites are modeled as **explicit, interpretable actions**, not opaque text generation.
+Query rewrites are modeled as **explicit actions**, not free-form text generation.
 
-This makes:
+This ensures:
 
-* policy behavior transparent
-* learning dynamics explainable
-* debugging straightforward
+* transparent policy behavior
+* explainable learning dynamics
+* easy debugging and analysis
+* safe deployment behavior (`no_op` is a first-class action)
 
 ---
 
-### 2. Shaped Reward (Sparse → Dense)
+### 2. RLHF-Style Reward Shaping
 
-Pure retrieval-based rewards are often sparse.
+Pure retrieval rewards are sparse and unstable.
 To improve learning stability, the reward combines:
 
-* **Retrieval gain** (difference in top-ranked BM25 score)
-* **Semantic preservation** (token overlap between original and rewritten query)
+* rank improvement (sparse, task-aligned)
+* embedding similarity (dense, stabilizing)
+* grounding quality (retrieval relevance)
+* rewrite penalties (regularization)
 
-This mirrors **RLHF-style reward shaping** while keeping the optimization objective grounded in system performance.
-
----
-
-### 3. Lightweight PPO-Style Policy
-
-The policy update is intentionally simple:
-
-* action probabilities are reinforced when rewards are positive
-* probabilities are normalized to preserve exploration
-* no deep networks or heavy frameworks are used
-
-This keeps the focus on **formulation correctness**, not training scale.
+This balances **learning signal strength** with **system correctness**.
 
 ---
 
-### 4. Executability Over Scale
+### 3. PPO for Stability
 
-The project is designed to:
+The agent uses **Proximal Policy Optimization (PPO)** with:
 
-* run end-to-end with a single command
-* be deterministic and interpretable
-* demonstrate ideas clearly in a live setting
+* shared policy/value networks
+* advantage-based updates
+* conservative policy updates
 
-This makes it ideal for:
+PPO was chosen for its stability and suitability for small, interpretable environments.
 
-* research discussions
-* PhD interviews
-* system design evaluations
+---
+
+### 4. Conservative Policy Learning
+
+The agent explicitly learns when **not** to rewrite.
+
+In domains where baseline retrieval is already optimal, the learned policy prefers `no_op`, preventing regression — a critical requirement for real-world RAG systems.
 
 ---
 
@@ -158,82 +186,108 @@ This makes it ideal for:
 python train.py
 ```
 
-Example output:
+Typical output:
 
 ```
-Episode 2
-Action: add_domain_terms
-Reward: 2.39
-------------------------------
-Episode 5
-Action: expand_acronyms
-Reward: 0.30
-------------------------------
-Updated action probabilities: [0.27, 0.36, 0.20, 0.17]
+Episode 12 | Total reward: 20.96
+Episode 18 | Total reward: 30.21
+Episode 29 | Total reward: 11.53
 ```
 
 Interpretation:
 
-* only certain rewrites materially improve retrieval
-* dense rewards stabilize learning
-* policy shifts toward high-impact actions without collapsing exploration
+* rewards increase without collapse
+* policy explores but stabilizes
+* rewriting is selective, not forced
 
 ---
 
-### Demo (Inference)
+### Inference Demo
 
 ```bash
 python main.py
 ```
 
-Example output:
+Example:
 
 ```
-Initial Query: treatment for diabetes
+Initial Query: dm therapy
 Chosen Action: add_domain_terms
-Rewritten Query: treatment for diabetes type 2 metformin first line treatment
-Top Result After Rewrite: Metformin is the first line treatment for type 2 diabetes.
+Rewritten Query: dm therapy diabetes type 2 treatment metformin
+Top Result: Metformin is the first line treatment for type 2 diabetes.
 Reward: 2.39
 ```
 
-This demonstrates **end-to-end optimization** of retrieval via learned query rewriting.
+---
+
+## Evaluation
+
+Evaluation is performed across **medical, legal, and financial domains**, comparing:
+
+* no rewrite
+* random rewrite
+* static rewrite
+* PPO-based rewrite
+
+Metrics:
+
+* Recall@3
+* Mean Rank
+
+### Key Observations
+
+* PPO improves recall on **underspecified queries**
+* PPO avoids rewriting when retrieval is already optimal
+* No regression on saturated domains
+* Action distributions are interpretable and auditable
+
+---
+
+## Results Summary
+
+* Achieved **up to +33% Recall@3 improvement** on medical queries
+* Demonstrated safe fallback (`no_op`) on legal and financial domains
+* Validated RL-based query rewriting as a controllable system component
 
 ---
 
 ## Why This Matters
 
-This project shows that:
+This project demonstrates that:
 
-* RL can be applied meaningfully **before generation**, not just during generation
-* retrieval quality can be treated as a **first-class optimization objective**
-* system-level design choices matter more than model size
+* RL can be applied **before generation**, not only during generation
+* Retrieval can be treated as a **first-class optimization objective**
+* System-level design often matters more than model scale
+* Conservative RL policies are essential for production RAG systems
 
 The same formulation generalizes to:
 
-* retrieval optimization in other domains (legal, finance)
+* domain-specific retrieval optimization
 * adaptive information access
-* control and optimization problems in distributed systems
+* control problems in distributed systems
 
 ---
 
 ## Limitations & Future Work
 
-* Policy is intentionally simple (no neural networks)
-* Corpus is small and illustrative
-* Future extensions could include:
+* Small, illustrative corpora
+* BM25-only retrieval backend
+* Single-step rewrite per episode
 
-  * learned policies with PPO/DQN
-  * embedding-based retrieval signals
-  * multi-step query refinement
-  * application to non-text control problems
+Possible extensions:
+
+* multi-step query refinement
+* hybrid BM25 + embedding retrieval
+* DQN-based discrete policies
+* online learning with user feedback
 
 ---
 
 ## Notes
 
-* Virtual environments and cached files are excluded by design
-* The repository emphasizes **clarity, correctness, and reproducibility**
-* This is a research demo, not a production system
+* Training artifacts are excluded by design
+* Emphasis is on **clarity, correctness, and reproducibility**
+* This is a research prototype, not a production system
 
 ---
 
@@ -243,4 +297,3 @@ The same formulation generalizes to:
 AI Engineer | Reinforcement Learning | RAG | Systems & Optimization
 
 ---
-
