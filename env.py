@@ -3,66 +3,61 @@ from reward import compute_reward
 
 class QueryRewriteEnv:
     """
-    Reinforcement Learning environment for query rewriting.
-    The environment evaluates how a rewritten query affects
-    downstream retrieval quality.
+    PPO-compatible RL environment for query rewriting.
     """
 
-    def __init__(self, retriever):
+    def __init__(self, retriever, max_steps=3):
         self.retriever = retriever
+        self.max_steps = max_steps
+        self.step_t = 0
+        self.original_query = None
 
     def reset(self, query, top_k=3):
-        """
-        Initialize the environment with an initial query.
-        """
-        results = self.retriever.retrieve(query, top_k=top_k)
-        return {
-            "query": query,
-            "results": results
-        }
+        self.step_t = 0
+        self.original_query = query
+        results = self.retriever.retrieve(query, top_k)
+
+        return self._build_state(query, results)
 
     def step(self, state, action_fn, top_k=3):
-        """
-        Take one environment step.
+        self.step_t += 1
 
-        Args:
-            state: dict containing current query and retrieval results
-            action_fn: function that rewrites the query
-            top_k: number of documents to retrieve
+        current_query = state["query"]
 
-        Returns:
-            next_state: updated state after applying the action
-            reward: scalar reward signal
-            info: detailed diagnostics for analysis/debugging
-        """
+        rewritten_query = action_fn(current_query)
 
-        original_query = state["query"]
+        before = self.retriever.retrieve(current_query, top_k)
+        after = self.retriever.retrieve(rewritten_query, top_k)
 
-        # Apply action (query rewrite)
-        rewritten_query = action_fn(original_query)
-
-        # Retrieve before and after rewrite
-        before_results = self.retriever.retrieve(original_query, top_k=top_k)
-        after_results = self.retriever.retrieve(rewritten_query, top_k=top_k)
-
-        # Compute shaped reward (retrieval + semantic preservation)
         reward = compute_reward(
-            before_results=before_results,
-            after_results=after_results,
-            original_query=original_query,
-            rewritten_query=rewritten_query
+            before,
+            after,
+            self.original_query,
+            rewritten_query
         )
 
-        next_state = {
-            "query": rewritten_query,
-            "results": after_results
-        }
+        done = self.step_t >= self.max_steps
+
+        next_state = self._build_state(rewritten_query, after)
 
         info = {
-            "original_query": original_query,
-            "rewritten_query": rewritten_query,
-            "before_results": before_results,
-            "after_results": after_results
+            "before": before,
+            "after": after,
+            "query": rewritten_query
         }
 
-        return next_state, reward, info
+        return next_state, reward, done, info
+
+    def _build_state(self, query, results):
+        top_score = results[0][0] if results else 0.0
+        avg_score = sum(r[0] for r in results) / max(len(results), 1)
+
+        return {
+            "query": query,
+            "vector": [
+                top_score,
+                avg_score,
+                len(query.split()),
+                self.step_t
+            ]
+        }

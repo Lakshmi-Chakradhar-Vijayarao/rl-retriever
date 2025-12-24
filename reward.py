@@ -1,24 +1,38 @@
-def token_overlap(q1, q2):
-    s1 = set(q1.lower().split())
-    s2 = set(q2.lower().split())
-    return len(s1 & s2) / max(len(s1), 1)
+def token_overlap(a, b):
+    sa = set(a.lower().split())
+    sb = set(b.lower().split())
+    return len(sa & sb) / max(len(sa), 1)
 
 
-def compute_reward(before_results, after_results, original_query, rewritten_query):
+def compute_reward(before, after, original_q, rewritten_q):
     """
-    Reward = retrieval gain + semantic preservation
+    RLHF-style shaped reward:
+    - rank improvement
+    - semantic preservation
+    - grounding quality
+    - rewrite penalty
     """
 
-    if not before_results or not after_results:
+    if not before or not after:
         return 0.0
 
-    # Retrieval improvement (primary signal)
-    retrieval_gain = after_results[0][0] - before_results[0][0]
+    # Retrieval improvement (primary task reward)
+    rank_gain = after[0][0] - before[0][0]
 
-    # Semantic preservation (dense signal)
-    semantic_bonus = token_overlap(original_query, rewritten_query)
+    # Semantic preservation (dense stabilizer)
+    semantic_sim = token_overlap(original_q, rewritten_q)
 
-    # Weighted reward
-    reward = 0.7 * retrieval_gain + 0.3 * semantic_bonus
+    # Grounding quality (query ↔ document alignment)
+    grounding = token_overlap(rewritten_q, after[0][1])
+
+    # Rewrite penalty (avoid bloated queries)
+    length_penalty = max(0, len(rewritten_q.split()) - len(original_q.split())) * 0.02
+
+    reward = (
+        1.0 * rank_gain +
+        0.5 * semantic_sim +
+        0.3 * grounding -
+        length_penalty
+    )
 
     return reward

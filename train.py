@@ -1,6 +1,8 @@
 from retriever import Retriever
 from env import QueryRewriteEnv
-from agent import PPOQueryRewriteAgent
+from agent import PPOAgent
+import torch
+import os
 
 
 def load_corpus(path):
@@ -12,29 +14,41 @@ def train():
     corpus = load_corpus("data/corpus.txt")
     retriever = Retriever(corpus)
     env = QueryRewriteEnv(retriever)
-    agent = PPOQueryRewriteAgent()
 
-    query = "treatment for diabetes"
-    state = env.reset(query)
+    agent = PPOAgent(state_dim=4, action_dim=4)
 
-    rewards = []
+    num_episodes = 30
 
-    for episode in range(10):
-        action = agent.select_action()
-        next_state, reward, info = env.step(state, action)
+    for episode in range(num_episodes):
+        state = env.reset("treatment for diabetes")
+        done = False
+        trajectory = []
 
-        rewards.append(reward)
-        state = next_state
+        while not done:
+            action_fn, action_idx, logp = agent.select_action(state["vector"])
+            next_state, reward, done, info = env.step(state, action_fn)
 
-        print(f"Episode {episode}")
-        print("Action:", action.__name__)
-        print("Reward:", reward)
-        print("-" * 30)
+            trajectory.append((
+                state["vector"],     # s
+                action_idx,          # a
+                logp,                # log π(a|s)
+                reward,              # r
+                next_state["vector"] # s'
+            ))
 
-    
-    agent.update_policy(rewards)
+            state = next_state
 
-    print("Updated action probabilities:", agent.action_probs)
+        agent.update(trajectory)
+
+        total_reward = sum(t[3] for t in trajectory)
+        print(f"Episode {episode:02d} | Total reward: {total_reward:.3f}")
+
+    # ----------------------------
+    # Save trained policy (MLOps-ready)
+    # ----------------------------
+    os.makedirs("models", exist_ok=True)
+    torch.save(agent.state_dict(), "models/policy.pt")
+    print("\n✅ Trained PPO policy saved to models/policy.pt")
 
 
 if __name__ == "__main__":
