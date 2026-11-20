@@ -1,5 +1,8 @@
 # RL-Retriever: Reinforcement Learning–Based Query Optimization for RAG
 
+> **Status note (20 Nov 2026): the headline result is withdrawn.** The "+33% Recall@3" on medical queries comes from answer leakage, not learned rewriting: the `add_domain_terms` action (`actions.py`) appends the fixed phrase "type 2 metformin first line treatment", the gold document's own words, to the query. Training also uses a single fixed query. Treat this repository as a learning exercise, not a result.
+
+
 RL-Retriever is a **research-grade, executable system** that formulates **query rewriting for Retrieval-Augmented Generation (RAG)** as a **reinforcement learning (RL) control problem**.
 
 Instead of treating query formulation as a static or heuristic preprocessing step, this project models query rewriting as a **sequential decision-making task**, where an RL agent learns **when and how to rewrite queries** to improve downstream retrieval quality — and when **not** to rewrite.
@@ -245,7 +248,7 @@ Metrics:
 
 ## Results Summary
 
-* Achieved **up to +33% Recall@3 improvement** on medical queries
+* ~~Achieved **up to +33% Recall@3 improvement** on medical queries~~ *Withdrawn: answer leakage (see the status note).*
 * Demonstrated safe fallback (`no_op`) on legal and financial domains
 * Validated RL-based query rewriting as a controllable system component
 
